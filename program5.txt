@@ -1,0 +1,101 @@
+import socket
+from fragment import fragment_packet, IPFragment
+
+HOST = 'localhost'
+PORT = 5000
+
+def handle_client(conn, addr):
+	print(f"Connected by {addr}")
+    
+	# Receive the original packet data from the client
+	data = conn.recv(4096)
+	if not data:
+    	print("No data received.")
+    	return
+    
+	# Define packet identifier and MTU
+	packet_identifier = 12345
+	mtu = 1500  # Maximum Transmission Unit (MTU) for the network (in bytes)
+    
+	# Step 1: Fragment the original packet
+	fragments = fragment_packet(data, packet_identifier, mtu=mtu)
+    
+	# Step 2: Send each fragment back to the client
+	for fragment in fragments:
+    	# Sending fragment details: identifier, offset, more_fragments flag, and data
+    	conn.sendall(f"{fragment.identifier},{fragment.offset},{fragment.more_fragments},{fragment.data.decode('utf-8')}".encode())
+    
+	print("All fragments sent to the client.")
+	conn.close()
+
+def main():
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    	s.bind((HOST, PORT))
+    	s.listen()
+    	print(f"Server listening on {HOST}:{PORT}")
+   	
+    	while True:
+        	conn, addr = s.accept()
+        	handle_client(conn, addr)
+
+if __name__ == "__main__":
+	main()
+
+client.py:
+import socket
+from reassembly import reassemble_packet, IPFragment
+
+HOST = 'localhost'
+PORT = 5000
+
+def main():
+	# Define the original data (a large packet)
+	original_packet_data = bytearray(b"This is an example of a large IP packet. " * 10)  # 380 bytes of data
+    
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    	s.connect((HOST, PORT))
+    	print(f"Connected to server {HOST}:{PORT}")
+
+    	# Step 1: Send the original packet to the server
+    	s.sendall(original_packet_data)
+   	
+    	# Step 2: Receive the fragmented packets from the server
+    	fragments = []
+    	while True:
+        	fragment_data = s.recv(4096)
+        	if not fragment_data:
+            	break
+       	
+        	# Parsing fragment details
+        	identifier, offset, more_fragments, data = fragment_data.decode().split(',', 3)
+        	fragment = IPFragment(
+            	identifier=int(identifier),
+            	offset=int(offset),
+            	more_fragments=int(more_fragments),
+            	data=bytearray(data, 'utf-8')
+        	)
+        	fragments.append(fragment)
+       	
+        	# Check if there are more fragments to be received
+        	if fragment.more_fragments == 0:
+            	print("All fragments received.")
+            	break
+   	
+    	print(f"Received {len(fragments)} fragments from the server.")
+
+    	# Step 3: Reassemble the packet from the fragments
+    	reassembled = reassemble_packet(fragments)
+   	
+    	# Step 4: Verify if the reassembled packet matches the original
+    	for identifier, data in reassembled.items():
+        	if identifier == 12345:  # Use the same identifier as sent to the server
+            	print(f"Reassembled packet data (first 50 bytes): {data[:50]}...")
+            	print(f"Original data length: {len(original_packet_data)} bytes")
+            	print(f"Reassembled data length: {len(data)} bytes")
+           	
+            	# Check if the original and reassembled data are identical
+            	assert original_packet_data == data, "Reassembled data doesn't match the original packet!"
+            	print("Reassembly successful!")
+
+if __name__ == "__main__":
+	main()
